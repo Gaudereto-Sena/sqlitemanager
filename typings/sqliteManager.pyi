@@ -7,7 +7,9 @@ from typing import List, Optional, Union, TypeVar, Type, Generic
 from dataclasses import dataclass, field,  fields
 from unidecode import unidecode
 from enum import Enum
+import tabulate
 import re
+
 """
 Decorator para propriedades de classe de forma tipada
 
@@ -393,21 +395,6 @@ class SqliteManager:
         dynamic_attrs = [attr for attr in vars(self) if not attr.startswith("__")]
         return sorted(default_attrs + dynamic_attrs)
     
-    @classproperty
-    def baseInterface(cls):
-        """ Ao adicionar uma nova funcionalidade, deve-se adicionar a sua correspondente na variavel interface """
-        interface = """
-class SqliteManager:
-\tpathDb: str
-\tdef initDB(self) -> None: ...
-\t@staticmethod
-\tdef generateMigration() -> None: ...
-\t@property
-\tdef tableNames(self) -> list[str]: ...
-\tdef executeSql(self, sql: Union[str, list[str]]): ... 
-"""
-        return interface
-    
     @staticmethod
     def initDB(models: List[Model], initFilename = 'init') -> str:
         initSchema = [model().schema for model in models]
@@ -424,9 +411,21 @@ class SqliteManager:
             return initSchema
         except:
             raise Exception("Falha ao gerar init.sql")  
+    
+    @staticmethod
+    def dropDB(models: List[Model]) -> list[str]:
+        dropSchema = [f"DROP TABLE IF EXISTS {model.modelTableName}" for model in models]
+        
+        return dropSchema
         
     @staticmethod
     def generateMigration(pathDB: str = None, initFilename = 'init'):
+        if pathDB:
+            print("As tabelas do banco correspondente ao Model serão removidas.")
+            choice = input("Deseja continuar? (S/N)  ===>  ")    
+            if choice.upper() != "S":
+                print("Operação abortada.")
+            
         models = Model.__subclasses__()
         modelsDefinitions = InterfaceWriter.extractModels('./models.py')
         modelsImplementations = "#" * 34
@@ -434,15 +433,17 @@ class SqliteManager:
         modelsImplementations += "#" * 34 + "\n"
         modelsImplementations += InterfaceWriter.generateInterface(modelsDefinitions)
         modelsImplementations += InterfaceWriter.readModelFile('./models.py')
-        InterfaceWriter.overwriteInterfaceFromLine('./typings/SqliteManager.pyi', 400, modelsImplementations)
+        InterfaceWriter.overwriteInterfaceFromLine('./typings/sqliteManager.pyi', 585, modelsImplementations)
         # print(modelsImplementations)
         if models:
             for model in models:
                 globals()[model.__name__] = model
                 
             schema = SqliteManager.initDB(models, initFilename)
+            dropSchema = SqliteManager.dropDB(models)
+            dropSchema.extend(schema)
             if pathDB:
-                SqliteManager.__executeSql(schema, pathDB)
+                SqliteManager.__executeSql(dropSchema, pathDB)
         else:
             raise Exception("Não foram encontrados Models para gerar schema.")
     
@@ -458,21 +459,9 @@ class SqliteManager:
         #     print("Table:", table_name)
         #     print("Schema:")
         #     print(create_statement)
-    
-    def executeSql(self, sql: Union[str, list[str]]):
-        try:
-            cursor = self.__connection.cursor()
-            if isinstance(sql, list): 
-                [cursor.execute(sqlStatement) for sqlStatement in sql]
-            else: 
-                cursor.execute(sql)
-            self.__connection.commit()
-            return self
-        except sqlite3.Error as e:
-            print('Erro ao executar a query', e)
             
     @staticmethod        
-    def __executeSql(cls, sql: Union[str, list[str]], pathDB):
+    def __executeSql(sql: Union[str, list[str]], pathDB):
         try:
             with sqlite3.connect(pathDB) as connection:
                 cursor = connection.cursor()
@@ -481,7 +470,6 @@ class SqliteManager:
                 else: 
                     cursor.execute(sql)
                 connection.commit()
-                connection.close()
         except sqlite3.Error as e:
             print('Erro ao executar a query', e)
             
@@ -495,6 +483,43 @@ class SqliteManager:
     def tableNames(self) -> list[str]:
         return self.__tableNames
     
+    def executeSql(self, sql: Union[str, list[str]]) -> SqliteManager:
+        try:
+            self.__cursor = self.__connection.cursor()
+            if isinstance(sql, list): 
+                [self.__cursor.execute(sqlStatement) for sqlStatement in sql]
+            else: 
+                self.__cursor.execute(sql)
+            self.__connection.commit()
+            
+        except sqlite3.Error as e:
+            print('Erro ao executar a query', e)
+        
+        return self
+
+    def printData(self, columnsNames: list[str] = []) -> SqliteManager:
+        data = self.__cursor.fetchall()
+        headers = columnsNames if columnsNames else [description[0] for description in self.__cursor.description]
+        TablePrinter.printTable(data, headers)
+        
+        return self
+            
+    @classproperty
+    def baseInterface(cls):
+        """ Ao adicionar uma nova funcionalidade, deve-se adicionar a sua correspondente na variavel interface """
+        interface = """
+class SqliteManager:
+\tpathDb: str
+\tdef initDB(self) -> None: ...
+\t@staticmethod
+\tdef generateMigration() -> None: ...
+\t@property
+\tdef tableNames(self) -> list[str]: ...
+\tdef executeSql(self, sql: Union[str, list[str]]) -> SqliteManager: ... 
+\tdef printData(self) -> SqliteManager: ... 
+"""
+        return interface
+        
 class InterfaceWriter:
     
     @staticmethod
@@ -541,7 +566,22 @@ class InterfaceWriter:
             for class_name in class_defs:
                 f.write(f"class {class_name}:\n")
                 f.write("    pass\n\n")
- 
+                              
+class TablePrinter:
+    __tabulate: tabulate = tabulate
+    
+    @staticmethod
+    def printTable(data: Union[set[str, int, float], list[str, int, float]], headers: Union[list[str], set[str]] = []):
+        
+        if len(data) > 0:
+            formatedTable = TablePrinter.__tabulate.tabulate(data, headers=headers)
+            print(formatedTable)
+        else: 
+            print("\nNão há dados disponíveis para exibição.")
+            
+        input("\nPressione qualquer tecla para sair...   ")
+        
+        
 ##################################
 # CLASSES IMPORTADAS DO MODEL #
 ##################################
@@ -560,7 +600,6 @@ class SqliteManager:
 	cargos : QueryBuilder[Cargos]
 	dependentes : QueryBuilder[Dependentes]
 	historicoSalarios : QueryBuilder[HistoricoSalarios]
-	historicoSalariosNovo : QueryBuilder[HistoricoSalariosNovo]
 
 class Departamentos(Model):
     __tableName = "departamentos"
@@ -586,7 +625,6 @@ class Funcionarios(Model):
         Column(name="cargo_id", options=ColumnOptions(type=ColumnTypes.INT, precision=11)),
         Column(name="departamento_id", options=ColumnOptions(type=ColumnTypes.INT, precision=11)),
         Column(name="salario_real", options=ColumnOptions(type=ColumnTypes.DECIMAL, precision="15,2", nullable=False)),
-        Column(name="data_nova", options=ColumnOptions(nullable=False, default="CURRENT_DATE", type=ColumnTypes.DATETIME)),
         Column(name="genero", options=ColumnOptions(type=ColumnTypes.VARCHAR, precision=15, nullable=False, definitions="CHECK(genero IN ('Masculino', 'Feminino', 'Não definido'))")),
         Column(name="data_cadastro", options=ColumnOptions(type=ColumnTypes.DATE, nullable=False, default="CURRENT_DATE"))
         ]
@@ -629,21 +667,6 @@ class Dependentes(Model):
         
 class HistoricoSalarios(Model):
     __tableName = "historico_salarios"
-    __columns = [
-        Column(name="id", options=ColumnOptions(type=ColumnTypes.INTEGER, autoIncrement=True, primaryKey=True)),
-        Column(name="funcionario_id", options=ColumnOptions(type=ColumnTypes.INT, precision=11, nullable=False)),
-        Column(name="data_pagamento", options=ColumnOptions(type=ColumnTypes.DATE, nullable=False)),
-        Column(name="salario_recebido", options=ColumnOptions(type=ColumnTypes.DECIMAL, precision="15,2", nullable=False))
-    ]
-    __foreignKeys = [
-        ForeignKey(key="funcionario_id", referenceKey="id", referenceModel=Funcionarios, onDelete=ForeignKeyAction.RESTRICT, onUpdate=ForeignKeyAction.CASCADE)
-    ]
-    
-    def __init__(self):
-        Model.__init__(self, self.__tableName, self.__columns, self.__foreignKeys)
-        
-class HistoricoSalariosNovo(Model):
-    __tableName = "historico_salarios_novo"
     __columns = [
         Column(name="id", options=ColumnOptions(type=ColumnTypes.INTEGER, autoIncrement=True, primaryKey=True)),
         Column(name="funcionario_id", options=ColumnOptions(type=ColumnTypes.INT, precision=11, nullable=False)),

@@ -433,7 +433,7 @@ class SqliteManager:
         modelsImplementations += "#" * 34 + "\n"
         modelsImplementations += InterfaceWriter.generateInterface(modelsDefinitions)
         modelsImplementations += InterfaceWriter.readModelFile('./models.py')
-        InterfaceWriter.overwriteInterfaceFromLine('./typings/SqliteManager.pyi', 545, modelsImplementations)
+        InterfaceWriter.overwriteInterfaceFromLine('./typings/sqliteManager.pyi', 585, modelsImplementations)
         # print(modelsImplementations)
         if models:
             for model in models:
@@ -566,8 +566,7 @@ class InterfaceWriter:
             for class_name in class_defs:
                 f.write(f"class {class_name}:\n")
                 f.write("    pass\n\n")
-                
-                
+                              
 class TablePrinter:
     __tabulate: tabulate = tabulate
     
@@ -581,3 +580,11 @@ class TablePrinter:
             print("\nNão há dados disponíveis para exibição.")
             
         input("\nPressione qualquer tecla para sair...   ")
+        
+        
+        
+        
+        
+        
+        
+        
